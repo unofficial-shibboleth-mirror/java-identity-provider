@@ -90,7 +90,7 @@
             <evaluator>
                 <matcher>
                     <Name>VelocityStatusMatcher</Name>
-                    <regex>ResourceManager : unable to find resource 'status.vm' in any resource loader.</regex>
+                    <regex>ResourceManager\s*: unable to find resource 'status\.vm' in any resource loader\.</regex>
                 </matcher>
                 <expression>VelocityStatusMatcher.matches(formattedMessage)</expression>
             </evaluator>
@@ -118,7 +118,7 @@
         
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <charset>UTF-8</charset>
-            <Pattern>%date{ISO8601} - %mdc{idp.remote_addr} - %level [%logger:%line] - %msg%n%ex{short}</Pattern>
+            <Pattern>%date{ISO8601} - %mdc{idp.remote_addr} - %level [%logger:%line] - %msg%n%ex{full}</Pattern>
         </encoder>
         
         <!-- Ignore Velocity status page error. -->
@@ -126,7 +126,7 @@
             <evaluator>
                 <matcher>
                     <Name>VelocityStatusMatcher</Name>
-                    <regex>ResourceManager : unable to find resource 'status.vm' in any resource loader.</regex>
+                    <regex>ResourceManager\s*: unable to find resource 'status\.vm' in any resource loader\.</regex>
                 </matcher>
                 <expression>VelocityStatusMatcher.matches(formattedMessage)</expression>
             </evaluator>
