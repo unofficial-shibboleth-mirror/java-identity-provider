@@ -71,7 +71,7 @@
         <u2flib.version>0.16.0</u2flib.version>
         <cas-client.version>3.5.1</cas-client.version>
         <idwsfconsumer.version>2.0.0</idwsfconsumer.version>
-        <java-support.version>8.0.0</java-support.version>
+        <java-support.version>8.1.0-SNAPSHOT</java-support.version>
         <opensaml.groupId>org.opensaml</opensaml.groupId>
         <opensaml.version>4.0.1-SNAPSHOT</opensaml.version>
         <spring-extensions.version>6.0.0</spring-extensions.version>
