@@ -54,6 +54,9 @@ import net.shibboleth.utilities.java.support.service.ReloadableService;
  */
 public class NodeProcessingAttachingBeanPostProcessor implements BeanPostProcessor, Ordered {
 
+    /** Whether to enable the processor. */
+    private boolean enabled;
+
     /** The registry of decoding rules. */
     @Nullable private final ReloadableService<AttributeTranscoderRegistry> transcoderRegistry;
 
@@ -65,6 +68,7 @@ public class NodeProcessingAttachingBeanPostProcessor implements BeanPostProcess
     public NodeProcessingAttachingBeanPostProcessor(
             @Nullable @ParameterName(name="service") final ReloadableService<AttributeTranscoderRegistry> service) {
         transcoderRegistry = service;
+        enabled = true;
     }
 
     /** {@inheritDoc} */
@@ -72,11 +76,21 @@ public class NodeProcessingAttachingBeanPostProcessor implements BeanPostProcess
         return LOWEST_PRECEDENCE;
     }
     
+    /**
+     * Set whether to enable the processor.
+     * 
+     * @param flag flag to set
+     */
+    public void setEnabled(final boolean flag) {
+        enabled = flag;
+    }
+    
     // Checkstyle: CyclomaticComplexity OFF
     /** {@inheritDoc} */
     @Override public Object postProcessBeforeInitialization(final Object bean, final String beanName) {
-        if (!(bean instanceof MetadataResolver) || bean instanceof ChainingMetadataResolver) {
-            // Do not attach to beans which just include other ones.
+        
+        // Do not attach to beans which just include other ones.
+        if (!enabled || !(bean instanceof MetadataResolver) || bean instanceof ChainingMetadataResolver) {
             return bean;
         }
 

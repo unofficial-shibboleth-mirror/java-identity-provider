@@ -18,7 +18,8 @@
         p:enabled="%{idp.service.metadata.enableByReferenceFilters:true}" />
     
     <bean class="net.shibboleth.idp.profile.spring.relyingparty.metadata.impl.NodeProcessingAttachingBeanPostProcessor"
-        c:service-ref="shibboleth.AttributeRegistryService" />
+        c:service-ref="shibboleth.AttributeRegistryService"
+        p:enabled="%{idp.service.metadata.enableDefaultNodeProcessors:true}" />
     
     <!-- Signature Validation Criteria  -->
     
