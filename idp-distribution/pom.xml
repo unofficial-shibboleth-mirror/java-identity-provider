@@ -23,16 +23,27 @@
 
     <dependencies>
         <!-- Compile Dependencies -->
-
-        <!-- Provided Dependencies -->
-
-        <!-- Runtime Dependencies -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>idp-installer</artifactId>
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Provided Dependencies -->
+
+        <!-- Runtime Dependencies -->
+        
+        <!--
+        TODO: Remove this if we ever bump OpenSAML itself.
+        This is here just to force an override of the version we ship.
+        -->
+        <dependency>
+            <groupId>org.cryptacular</groupId>
+            <artifactId>cryptacular</artifactId>
+            <scope>runtime</scope>
+            <version>1.1.4</version>
+        </dependency>
+        
         <!-- Required if using classes with command line support. -->
         <dependency>
             <groupId>com.beust</groupId>
