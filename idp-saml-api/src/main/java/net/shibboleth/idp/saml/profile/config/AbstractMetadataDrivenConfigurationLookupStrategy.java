@@ -17,6 +17,7 @@
 
 package net.shibboleth.idp.saml.profile.config;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -111,18 +112,6 @@ public abstract class AbstractMetadataDrivenConfigurationLookupStrategy<T> exten
         enableCaching = true;
     }
     
-    /** {@inheritDoc} */
-    @Override
-    protected void doInitialize() throws ComponentInitializationException {
-        super.doInitialize();
-        
-        if (propertyName == null) {
-            throw new ComponentInitializationException("Property name cannot be null or empty");
-        } else if (propertyAliases == null) {
-            propertyAliases = Collections.emptyList();
-        }
-    }
-
     /**
      * Set whether tag matching should examine and require an Attribute NameFormat of the URI type.
      * 
@@ -172,12 +161,7 @@ public abstract class AbstractMetadataDrivenConfigurationLookupStrategy<T> exten
         ComponentSupport.ifInitializedThrowUnmodifiabledComponentException(this);
         Constraint.isNotNull(aliases, "Alias collection cannot be null");
         
-        propertyAliases = Collections2.transform(StringSupport.normalizeStringCollection(aliases),
-                new Function<String,String>() {
-                    public String apply(final String input) {
-                        return input + (input.endsWith("/") ? propertyName : '/' + propertyName);
-                    }
-                });
+        propertyAliases = new ArrayList(StringSupport.normalizeStringCollection(aliases));        
     }
     
     /**
@@ -276,6 +260,25 @@ public abstract class AbstractMetadataDrivenConfigurationLookupStrategy<T> exten
     }
 // Checkstyle: CyclomaticComplexity ON
     
+    /** {@inheritDoc} */
+    @Override
+    protected void doInitialize() throws ComponentInitializationException {
+        super.doInitialize();
+        
+        if (propertyName == null) {
+            throw new ComponentInitializationException("Property name cannot be null or empty");
+        } else if (propertyAliases == null) {
+            propertyAliases = Collections.emptyList();
+        } else {
+            propertyAliases = Collections2.transform(propertyAliases,
+                    new Function<String,String>() {
+                        public String apply(final String input) {
+                            return input + (input.endsWith("/") ? propertyName : '/' + propertyName);
+                        }
+                    });
+        }
+    }
+
     /**
      * Translate the value(s) into a setting of the appropriate type.
      * 
