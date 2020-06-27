@@ -28,7 +28,6 @@ import org.ldaptive.BindConnectionInitializer;
 import org.ldaptive.ConnectionConfig;
 import org.ldaptive.Credential;
 import org.ldaptive.DefaultConnectionFactory;
-import org.ldaptive.DerefAliases;
 import org.ldaptive.SearchExecutor;
 import org.ldaptive.SearchFilter;
 import org.ldaptive.SearchRequest;
@@ -170,8 +169,16 @@ public class LDAPDataConnectorParser extends AbstractWarningDataConnectorParser 
         propertyElements.addAll(ElementSupport.getChildElements(config,
                         new QName(AttributeResolverNamespaceHandler.NAMESPACE, "LDAPProperty")));
         for (final Element e : propertyElements) {
-            props.put(AttributeSupport.getAttributeValue(e, new QName("name")),
-                    AttributeSupport.getAttributeValue(e, new QName("value")));
+            final String value = AttributeSupport.getAttributeValue(e, new QName("value"));
+            final String name = AttributeSupport.getAttributeValue(e, new QName("name"));
+            if ("java.naming.ldap.attributes.binary".equalsIgnoreCase(name)) {
+                DeprecationSupport.warnOnce(ObjectType.ATTRIBUTE, 
+                        "<LDAPPrpperty name=\"java.naming.ldap.attributes.binary\" ..>", 
+                        parserContext.getReaderContext().getResource().getDescription(), 
+                        "(none), will be ignored");
+            }
+            
+            props.put(name, value);
         }
         providerConfig.addPropertyValue("properties", props);
         provider.addPropertyValue("providerConfig", providerConfig.getBeanDefinition());
