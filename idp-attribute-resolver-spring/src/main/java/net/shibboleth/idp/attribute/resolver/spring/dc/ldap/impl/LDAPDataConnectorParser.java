@@ -175,7 +175,7 @@ public class LDAPDataConnectorParser extends AbstractWarningDataConnectorParser 
                 DeprecationSupport.warnOnce(ObjectType.ATTRIBUTE, 
                         "<LDAPPrpperty name=\"java.naming.ldap.attributes.binary\" ..>", 
                         parserContext.getReaderContext().getResource().getDescription(), 
-                        "(none), will be ignored");
+                        "<BinaryAttributes> element");
             }
             
             props.put(name, value);
