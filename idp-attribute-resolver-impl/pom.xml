@@ -7,7 +7,7 @@
 	<parent>
 		<groupId>net.shibboleth.idp</groupId>
 		<artifactId>idp-parent</artifactId>
-		<version>3.4.7</version>
+		<version>3.4.8-SNAPSHOT</version>
 		<relativePath>../idp-parent</relativePath>
 	</parent>
 
