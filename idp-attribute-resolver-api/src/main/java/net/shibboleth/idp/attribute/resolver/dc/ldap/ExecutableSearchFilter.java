@@ -21,9 +21,9 @@ import javax.annotation.Nonnull;
 
 import org.ldaptive.ConnectionFactory;
 import org.ldaptive.LdapException;
-import org.ldaptive.SearchExecutor;
-import org.ldaptive.SearchFilter;
-import org.ldaptive.SearchResult;
+import org.ldaptive.FilterTemplate;
+import org.ldaptive.SearchOperation;
+import org.ldaptive.SearchResponse;
 
 import net.shibboleth.idp.attribute.resolver.dc.ExecutableSearch;
 
@@ -33,14 +33,14 @@ public interface ExecutableSearchFilter extends ExecutableSearch {
     /**
      * Performs an LDAP search and returns the results.
      * 
-     * @param executor configured to perform searches
+     * @param operation configured to perform searches
      * @param factory ready-to-use connection factory
      * 
      * @return the result of this search filter
      * 
      * @throws LdapException thrown if there is an error performing the search
      */
-    @Nonnull SearchResult execute(@Nonnull SearchExecutor executor, @Nonnull ConnectionFactory factory)
+    @Nonnull SearchResponse execute(@Nonnull SearchOperation operation, @Nonnull ConnectionFactory factory)
             throws LdapException;
 
     /**
@@ -48,5 +48,5 @@ public interface ExecutableSearchFilter extends ExecutableSearch {
      *
      * @return  search filter
      */
-    @Nonnull SearchFilter getSearchFilter();
+    @Nonnull FilterTemplate getSearchFilter();
 }

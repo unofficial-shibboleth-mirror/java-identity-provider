@@ -94,9 +94,7 @@ public class ConnectionFactoryValidator extends AbstractInitializableComponent i
 
     /** {@inheritDoc} */
     @Override public void validate() throws ValidationException {
-        Connection connection = null;
-        try {
-            connection = connectionFactory.getConnection();
+        try (Connection connection = connectionFactory.getConnection()) {
             if (connection == null) {
                 log.error("Unable to retrieve connections from configured connection factory");
                 if (isThrowValidateError()) {
@@ -108,10 +106,6 @@ public class ConnectionFactoryValidator extends AbstractInitializableComponent i
             log.error("Connection factory validation failed", e);
             if (isThrowValidateError()) {
                 throw new ValidationException(e);
-            }
-        } finally {
-            if (connection != null) {
-                connection.close();
             }
         }
     }

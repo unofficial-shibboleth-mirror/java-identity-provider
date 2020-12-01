@@ -22,7 +22,7 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.ldaptive.SearchFilter;
+import org.ldaptive.FilterTemplate;
 
 import net.shibboleth.idp.attribute.IdPAttributeValue;
 import net.shibboleth.idp.attribute.resolver.ResolutionException;
@@ -69,7 +69,7 @@ public class ParameterizedExecutableSearchFilterBuilder extends AbstractExecutab
     @Override public ExecutableSearchFilter build(@Nonnull final AttributeResolutionContext resolutionContext,
             @Nonnull final Map<String, List<IdPAttributeValue>> dependencyAttributes) throws ResolutionException {
         ComponentSupport.ifNotInitializedThrowUninitializedComponentException(this);
-        final SearchFilter sf = new SearchFilter(searchFilter);
+        final FilterTemplate sf = new FilterTemplate(searchFilter);
         sf.setParameter("principalName", resolutionContext.getPrincipal());
         if (dependencyAttributes != null && !dependencyAttributes.isEmpty()) {
             for (final Map.Entry<String, List<IdPAttributeValue>> entry : dependencyAttributes.entrySet()) {

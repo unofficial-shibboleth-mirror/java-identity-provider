@@ -46,7 +46,7 @@ import org.ldaptive.auth.AuthenticationResponse;
 import org.ldaptive.auth.AuthenticationResponseHandler;
 import org.ldaptive.auth.AuthenticationResultCode;
 import org.ldaptive.auth.Authenticator;
-import org.ldaptive.auth.BindAuthenticationHandler;
+import org.ldaptive.auth.SimpleBindAuthenticationHandler;
 import org.ldaptive.auth.SearchDnResolver;
 import org.ldaptive.auth.ext.PasswordPolicyAccountState;
 import org.ldaptive.control.PasswordPolicyControl;
@@ -78,7 +78,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
 
     private TemplateSearchDnResolver dnResolver;
 
-    private BindAuthenticationHandler authHandler;
+    private SimpleBindAuthenticationHandler authHandler;
 
     private Authenticator authenticator;
 
@@ -106,7 +106,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
                 VelocityEngine.newVelocityEngine(), "(uid=$usernamePasswordContext.username)");
         dnResolver.setBaseDn("ou=people,dc=shibboleth,dc=net");
 
-        authHandler = new BindAuthenticationHandler(new DefaultConnectionFactory("ldap://localhost:10389"));
+        authHandler = new SimpleBindAuthenticationHandler(new DefaultConnectionFactory("ldap://localhost:10389"));
 
         authenticator = new Authenticator(dnResolver, authHandler);
     }
@@ -170,6 +170,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
 
         final Event event = action.execute(src);
         Assert.assertNull(ac.getAuthenticationResult());
+        Assert.assertNull(ac.getSubcontext(LDAPResponseContext.class));
         Assert.assertNull(ac.getSubcontext(AuthenticationErrorContext.class));
         ActionTestingSupport.assertEvent(event, AuthnEventIds.NO_CREDENTIALS);
     }
@@ -230,7 +231,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
         ac.setAttemptedFlow(authenticationFlows.get(0));
         
         validator.setAuthenticator(new Authenticator(dnResolver,
-                new BindAuthenticationHandler(new DefaultConnectionFactory("ldap://unknown:389"))));
+                new SimpleBindAuthenticationHandler(new DefaultConnectionFactory("ldap://unknown:389"))));
         validator.initialize();
         
         action.initialize();
@@ -240,15 +241,10 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
         final Event event = action.execute(src);
 
         Assert.assertNull(ac.getAuthenticationResult());
-        LDAPResponseContext lrc = ac.getSubcontext(LDAPResponseContext.class);
-        Assert.assertNotNull(lrc.getAuthenticationResponse());
-        Assert.assertEquals(lrc.getAuthenticationResponse().getAuthenticationResultCode(),
-                AuthenticationResultCode.AUTHENTICATION_HANDLER_FAILURE);
-
+        Assert.assertNull(ac.getSubcontext(LDAPResponseContext.class));
         AuthenticationErrorContext aec = ac.getSubcontext(AuthenticationErrorContext.class);
         Assert.assertNotNull(aec);
         ActionTestingSupport.assertEvent(event, AuthnEventIds.AUTHN_EXCEPTION);
-        System.err.println("EXCEPTIONS:: " + aec.getExceptions());
         Assert.assertEquals(aec.getExceptions().size(), 1);
         Assert.assertEquals(aec.getClassifiedErrors().size(), 0);
     }
@@ -297,6 +293,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
 
         final Event event = action.execute(src);
         Assert.assertNull(ac.getAuthenticationResult());
+        Assert.assertNull(ac.getSubcontext(LDAPResponseContext.class));
         Assert.assertNull(ac.getSubcontext(AuthenticationErrorContext.class));
         ActionTestingSupport.assertEvent(event, AuthnEventIds.INVALID_CREDENTIALS);
     }
@@ -337,7 +334,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
         ac.setAttemptedFlow(authenticationFlows.get(0));
 
         Authenticator errorAuthenticator = new Authenticator(dnResolver, authHandler);
-        errorAuthenticator.setAuthenticationResponseHandlers(new AuthenticationResponseHandler() {
+        errorAuthenticator.setResponseHandlers(new AuthenticationResponseHandler() {
             public void handle(AuthenticationResponse response) throws LdapException {
                 response.setAccountState(new PasswordPolicyAccountState(PasswordPolicyControl.Error.PASSWORD_EXPIRED));
             }
@@ -372,7 +369,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
         ac.setAttemptedFlow(authenticationFlows.get(0));
 
         Authenticator errorAuthenticator = new Authenticator(dnResolver, authHandler);
-        errorAuthenticator.setAuthenticationResponseHandlers(new AuthenticationResponseHandler() {
+        errorAuthenticator.setResponseHandlers(new AuthenticationResponseHandler() {
             public void handle(AuthenticationResponse response) throws LdapException {
                 response.setAccountState(
                         new PasswordPolicyAccountState(PasswordPolicyControl.Error.CHANGE_AFTER_RESET));
@@ -418,7 +415,7 @@ public class LDAPCredentialValidatorTest extends BaseAuthenticationContextTest {
         ac.setAttemptedFlow(authenticationFlows.get(0));
 
         Authenticator warningAuthenticator = new Authenticator(dnResolver, authHandler);
-        warningAuthenticator.setAuthenticationResponseHandlers(new AuthenticationResponseHandler() {
+        warningAuthenticator.setResponseHandlers(new AuthenticationResponseHandler() {
             public void handle(AuthenticationResponse response) throws LdapException {
                 response.setAccountState(
                         new AccountState(new AccountState.DefaultWarning(ZonedDateTime.now(), 10)));

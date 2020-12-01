@@ -30,24 +30,21 @@ import org.ldaptive.BindConnectionInitializer;
 import org.ldaptive.ConnectionConfig;
 import org.ldaptive.Credential;
 import org.ldaptive.DefaultConnectionFactory;
+import org.ldaptive.FilterTemplate;
+import org.ldaptive.PooledConnectionFactory;
 import org.ldaptive.RandomConnectionStrategy;
 import org.ldaptive.RoundRobinConnectionStrategy;
-import org.ldaptive.SearchExecutor;
-import org.ldaptive.SearchFilter;
+import org.ldaptive.SearchConnectionValidator;
+import org.ldaptive.SearchOperation;
 import org.ldaptive.SearchRequest;
 import org.ldaptive.SearchScope;
 import org.ldaptive.handler.CaseChangeEntryHandler;
 import org.ldaptive.handler.CaseChangeEntryHandler.CaseChange;
 import org.ldaptive.handler.DnAttributeEntryHandler;
-import org.ldaptive.handler.SearchEntryHandler;
-import org.ldaptive.pool.BlockingConnectionPool;
+import org.ldaptive.handler.LdapEntryHandler;
+import org.ldaptive.handler.SearchResultHandler;
 import org.ldaptive.pool.IdlePruneStrategy;
-import org.ldaptive.pool.PoolConfig;
-import org.ldaptive.pool.PooledConnectionFactory;
-import org.ldaptive.pool.SearchValidator;
-import org.ldaptive.referral.SearchReferralHandler;
-import org.ldaptive.sasl.DigestMd5Config;
-import org.ldaptive.sasl.GssApiConfig;
+import org.ldaptive.referral.FollowSearchReferralHandler;
 import org.ldaptive.sasl.Mechanism;
 import org.ldaptive.sasl.SaslConfig;
 import org.ldaptive.ssl.AllowAnyHostnameVerifier;
@@ -105,17 +102,17 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
      * </p>
      * 
      * <ul>
-     * <li>{@link SearchExecutor#setTimeLimit(Duration)} defaults to 3s, overridden by the "searchTimeLimit" attribute.
+     * <li>search time limit defaults to 3s, overridden by the "searchTimeLimit" attribute.
      * </li>
-     * <li>{@link SearchExecutor#setSizeLimit(long)} defaults to 1, overridden by the "maxResultSize" attribute.</li>
-     * <li>{@link SearchRequest#setBaseDn(String)} default to "", overridden by the "validateDN" attribute.</li>
-     * <li>{@link SearchFilter#SearchFilter(String)} defaults to "(objectClass=*)", overridden by the "validateFilter"
+     * <li>search size limit defaults to 1, overridden by the "maxResultSize" attribute.</li>
+     * <li>search base dn default to "", overridden by the "validateDN" attribute.</li>
+     * <li>search filter defaults to "(objectClass=*)", overridden by the "validateFilter"
      * attribute.</li>
-     * <li>{@link PoolConfig#setMinPoolSize(int)} defaults to 0 if neither the attribute "poolInitialSize" nor the
+     * <li>pool min size defaults to 0 if neither the attribute "poolInitialSize" nor the
      * attribute "minPoolSize" are set.</li>
-     * <li>{@link PoolConfig#setMaxPoolSize(int)} defaults to 3 if neither the attribute "poolMaxIdleSize" nor the
+     * <li>pool max size defaults to 3 if neither the attribute "poolMaxIdleSize" nor the
      * attribute "maxPoolSize" are set.</li>
-     * <li>{@link PoolConfig#setValidatePeriod(Duration)} defaults to 30m, overridden by the attribute
+     * <li>pool validation period defaults to 30m, overridden by the attribute
      * "validateTimerPeriod"</li>
      * </ul>
      * 
@@ -137,10 +134,6 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
         
         final V2Parser v2Parser = new V2Parser(config, getLogPrefix());
 
-        final BeanDefinitionBuilder connectionFactory =
-                BeanDefinitionBuilder.genericBeanDefinition(DefaultConnectionFactory.class);
-        connectionFactory.addConstructorArgValue(v2Parser.createConnectionConfig(parserContext));
-
         final String searchBuilderID = v2Parser.getBeanSearchBuilderID();
         if (searchBuilderID != null) {
             builder.addPropertyReference("executableSearchBuilder", searchBuilderID);
@@ -151,18 +144,19 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             }
         }
 
-        final BeanDefinition connectionPool = v2Parser.createConnectionPool(connectionFactory.getBeanDefinition());
-        BeanDefinitionBuilder pooledConnectionFactory = null;
-        if (connectionPool != null) {
-            pooledConnectionFactory = BeanDefinitionBuilder.genericBeanDefinition(PooledConnectionFactory.class);
-            pooledConnectionFactory.addConstructorArgValue(connectionPool);
-            builder.addPropertyValue("connectionFactory", pooledConnectionFactory.getBeanDefinition());
+        final BeanDefinitionBuilder connectionFactory =
+                BeanDefinitionBuilder.genericBeanDefinition(DefaultConnectionFactory.class);
+        connectionFactory.addConstructorArgValue(v2Parser.createConnectionConfig(parserContext));
+
+        final BeanDefinition pooledConnectionFactory = v2Parser.createPooledConnectionFactory(parserContext);
+        if (pooledConnectionFactory != null) {
+            builder.addPropertyValue("connectionFactory", pooledConnectionFactory);
         } else {
             builder.addPropertyValue("connectionFactory", connectionFactory.getBeanDefinition());
         }
 
-        final BeanDefinition searchExecutor = v2Parser.createSearchExecutor();
-        builder.addPropertyValue("searchExecutor", searchExecutor);
+        final BeanDefinition searchOperation = v2Parser.createSearchOperation();
+        builder.addPropertyValue("searchOperation", searchOperation);
 
         final String mappingStrategyID = AttributeSupport.getAttributeValue(config, new QName("mappingStrategyRef"));
         if (mappingStrategyID != null) {
@@ -179,8 +173,7 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             builder.addPropertyReference("validator", validatorID);
         } else {
             if (pooledConnectionFactory != null) {
-                builder.addPropertyValue("validator",
-                        v2Parser.createValidator(pooledConnectionFactory.getBeanDefinition()));
+                builder.addPropertyValue("validator", v2Parser.createValidator(pooledConnectionFactory));
             } else {
                 builder.addPropertyValue("validator", v2Parser.createValidator(connectionFactory.getBeanDefinition()));
             }
@@ -315,7 +308,7 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
                 connectionInitializer.addPropertyValue("bindSaslConfig", saslConfig);
             }
             if (principal != null || principalCredential != null || saslConfig != null) {
-                connectionConfig.addPropertyValue("connectionInitializer", connectionInitializer.getBeanDefinition());
+                connectionConfig.addPropertyValue("connectionInitializers", connectionInitializer.getBeanDefinition());
             }
             final String connectionStrategy = AttributeSupport.getAttributeValue(
                 configElement, new QName("connectionStrategy"));
@@ -476,12 +469,12 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
         }
 
         /**
-         * Creates a new search executor bean definition from a v2 XML configuration.
+         * Creates a new search operation bean definition from a v2 XML configuration.
          *
-         * @return search executor bean definition
+         * @return search operation bean definition
          */
         // CheckStyle: CyclomaticComplexity|MethodLength OFF
-        @Nonnull public BeanDefinition createSearchExecutor() {
+        @Nonnull public BeanDefinition createSearchOperation() {
             final String baseDn = AttributeSupport.getAttributeValue(configElement, new QName("baseDN"));
             final String searchScope = AttributeSupport.getAttributeValue(configElement, new QName("searchScope"));
             final String derefAliases = AttributeSupport.getAttributeValue(configElement, new QName("derefAliases"));
@@ -493,38 +486,41 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             final String lowercaseAttributeNames =
                     AttributeSupport.getAttributeValue(configElement, new QName("lowercaseAttributeNames"));
 
-            final BeanDefinitionBuilder searchExecutor =
-                    BeanDefinitionBuilder.genericBeanDefinition(SearchExecutor.class);
+            final BeanDefinitionBuilder searchRequest =
+                    BeanDefinitionBuilder.genericBeanDefinition(SearchRequest.class);
             if (baseDn != null) {
-                searchExecutor.addPropertyValue("baseDn", baseDn);
+                searchRequest.addPropertyValue("baseDn", baseDn);
             }
             if (searchScope != null) {
-                searchExecutor.addPropertyValue("searchScope", searchScope);
+                searchRequest.addPropertyValue("searchScope", searchScope);
             }
             if (derefAliases != null) {
-                searchExecutor.addPropertyValue("derefAliases", derefAliases);
+                searchRequest.addPropertyValue("derefAliases", derefAliases);
             }
+
+            final BeanDefinitionBuilder searchOperation =
+                    BeanDefinitionBuilder.genericBeanDefinition(SearchOperation.class);
             if (followReferrals != null) {
                 final BeanDefinitionBuilder handler =
-                    BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildReferralHandler");
+                    BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildReferralHandlers");
                 handler.addConstructorArgValue(followReferrals);
-                searchExecutor.addPropertyValue("referralHandler", handler.getBeanDefinition());
+                searchOperation.addPropertyValue("searchResultHandlers", handler.getBeanDefinition());
             }
             if (searchTimeLimit != null) {
-                searchExecutor.addPropertyValue("timeLimit", searchTimeLimit);
+                searchRequest.addPropertyValue("timeLimit", searchTimeLimit);
             } else {
-                searchExecutor.addPropertyValue("timeLimit", Duration.ofSeconds(3));
+                searchRequest.addPropertyValue("timeLimit", Duration.ofSeconds(3));
             }
             if (maxResultSize != null) {
-                searchExecutor.addPropertyValue("sizeLimit", maxResultSize);
+                searchRequest.addPropertyValue("sizeLimit", maxResultSize);
             } else {
-                searchExecutor.addPropertyValue("sizeLimit", 1);
+                searchRequest.addPropertyValue("sizeLimit", 1);
             }
 
             final BeanDefinitionBuilder handlers =
                     BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildSearchEntryHandlers");
             handlers.addConstructorArgValue(lowercaseAttributeNames);
-            searchExecutor.addPropertyValue("searchEntryHandlers", handlers.getBeanDefinition());
+            searchOperation.addPropertyValue("entryHandlers", handlers.getBeanDefinition());
 
             final List<Element> returnAttrsElements = ElementSupport.getChildElementsByTagNameNS(configElement, 
                     AttributeResolverNamespaceHandler.NAMESPACE, "ReturnAttributes");
@@ -539,7 +535,7 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
                 final BeanDefinitionBuilder returnAttrs =
                         BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildStringList");
                 returnAttrs.addConstructorArgValue(ElementSupport.getElementContentAsString(returnAttrsElement));
-                searchExecutor.addPropertyValue("returnAttributes", returnAttrs.getBeanDefinition());
+                searchRequest.addPropertyValue("returnAttributes", returnAttrs.getBeanDefinition());
             }
 
             final List<Element> binaryAttrsElements = ElementSupport.getChildElementsByTagNameNS(configElement,
@@ -555,10 +551,11 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
                 final BeanDefinitionBuilder binaryAttrs =
                   BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildStringList");
                 binaryAttrs.addConstructorArgValue(ElementSupport.getElementContentAsString(binaryAttrsElement));
-                searchExecutor.addPropertyValue("binaryAttributes", binaryAttrs.getBeanDefinition());
+                searchRequest.addPropertyValue("binaryAttributes", binaryAttrs.getBeanDefinition());
             }
 
-            return searchExecutor.getBeanDefinition();
+            searchOperation.addPropertyValue("request", searchRequest.getBeanDefinition());
+            return searchOperation.getBeanDefinition();
         }
         // CheckStyle: CyclomaticComplexity|MethodLength ON
 
@@ -583,14 +580,13 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
         // CheckStyle: CyclomaticComplexity ON
 
         /**
-         * Creates a new connection pool bean definition from a v2 XML configuration.
-         * 
-         * @param connectionFactory used by the connection pool
-         * 
-         * @return connection pool bean definition
+         * Creates a new pooled connection factory bean definition from a v2 XML configuration.
+         *
+         * @param parserContext bean definition parsing context
+         * @return pooled connection factory bean definition
          */
         // CheckStyle: MethodLength OFF
-        @Nullable public BeanDefinition createConnectionPool(final BeanDefinition connectionFactory) {
+        @Nullable public BeanDefinition createPooledConnectionFactory(@Nonnull final ParserContext parserContext) {
 
             final Element poolConfigElement = getConnectionPoolElement();
             if (null == poolConfigElement) {
@@ -608,84 +604,62 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             final String expirationTime =
                     AttributeSupport.getAttributeValue(poolConfigElement, new QName("expirationTime"));
 
-            final BeanDefinitionBuilder pool =
-                    BeanDefinitionBuilder.genericBeanDefinition(BlockingConnectionPool.class);
-            pool.addPropertyValue("name", "resolver-pool");
+            final BeanDefinitionBuilder connectionFactory =
+                    BeanDefinitionBuilder.genericBeanDefinition(PooledConnectionFactory.class);
+            connectionFactory.addPropertyValue("name", "resolver-pool");
+            connectionFactory.addPropertyValue("connectionConfig", createConnectionConfig(parserContext));
             if (blockWaitTime != null) {
-                pool.addPropertyValue("blockWaitTime", blockWaitTime);
+                connectionFactory.addPropertyValue("blockWaitTime", blockWaitTime);
             }
             if (expirationTime != null) {
                 final BeanDefinitionBuilder strategy =
                         BeanDefinitionBuilder.genericBeanDefinition(IdlePruneStrategy.class);
                 strategy.addConstructorArgValue(expirationTime);
-                pool.addPropertyValue("pruneStrategy", strategy.getBeanDefinition());
-            }
-            pool.addPropertyValue("poolConfig", createPoolConfig());
-
-            final BeanDefinitionBuilder validator =
-                    BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildSearchValidator");
-            validator.addConstructorArgValue(
-                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validatePeriodically")));
-            validator.addConstructorArgValue(
-                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateDN")));
-            validator.addConstructorArgValue(
-                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateFilter")));
-            pool.addPropertyValue("validator", validator.getBeanDefinition());
-
-            pool.addPropertyValue("connectionFactory", connectionFactory);
-            final String failFastInitialize =
-                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("failFastInitialize"));
-            if (failFastInitialize != null) {
-                // V4 Deprecation
-                DeprecationSupport.warnOnce(ObjectType.ATTRIBUTE, "failfastInitialize (on a ConnectionPool element)", 
-                        null, "failfastInitialize (on a DataConnector)");
-                pool.addPropertyValue("failFastInitialize", failFastInitialize);
-            }
-            pool.setInitMethodName("initialize");
-            return pool.getBeanDefinition();
-        }
-
-        // CheckStyle: MethodLength ON
-
-        /**
-         * Creates a new pool config bean definition from a v2 XML configuration.
-         * 
-         * @return pool config bean definition
-         */
-        @Nullable protected BeanDefinition createPoolConfig() {
-            final Element poolConfigElement = getConnectionPoolElement();
-            if (poolConfigElement == null) {
-                return null;
+                connectionFactory.addPropertyValue("pruneStrategy", strategy.getBeanDefinition());
             }
 
             final String minPoolSize = AttributeSupport.getAttributeValue(poolConfigElement, new QName("minPoolSize"));
             final String maxPoolSize = AttributeSupport.getAttributeValue(poolConfigElement, new QName("maxPoolSize"));
             final String validatePeriodically =
                     AttributeSupport.getAttributeValue(poolConfigElement, new QName("validatePeriodically"));
-            final String validateTimerPeriod =
-                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateTimerPeriod"));
 
-            final BeanDefinitionBuilder poolConfig = BeanDefinitionBuilder.genericBeanDefinition(PoolConfig.class);
             if (minPoolSize == null) {
-                poolConfig.addPropertyValue("minPoolSize", 0);
+                connectionFactory.addPropertyValue("minPoolSize", 0);
             } else {
-                poolConfig.addPropertyValue("minPoolSize", minPoolSize);
+                connectionFactory.addPropertyValue("minPoolSize", minPoolSize);
             }
             if (maxPoolSize == null) {
-                poolConfig.addPropertyValue("maxPoolSize", 3);
+                connectionFactory.addPropertyValue("maxPoolSize", 3);
             } else {
-                poolConfig.addPropertyValue("maxPoolSize", maxPoolSize);
+                connectionFactory.addPropertyValue("maxPoolSize", maxPoolSize);
             }
             if (validatePeriodically != null) {
-                poolConfig.addPropertyValue("validatePeriodically", validatePeriodically);
+                connectionFactory.addPropertyValue("validatePeriodically", validatePeriodically);
             }
-            if (validateTimerPeriod != null) {
-                poolConfig.addPropertyValue("validatePeriod", validateTimerPeriod);
-            } else {
-                poolConfig.addPropertyValue("validatePeriod", Duration.ofMinutes(30));
+
+            final BeanDefinitionBuilder validator =
+                    BeanDefinitionBuilder.rootBeanDefinition(V2Parser.class, "buildSearchValidator");
+            validator.addConstructorArgValue(
+                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateDN")));
+            validator.addConstructorArgValue(
+                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateFilter")));
+            validator.addConstructorArgValue(
+                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("validateTimerPeriod")));
+            connectionFactory.addPropertyValue("validator", validator.getBeanDefinition());
+
+            final String failFastInitialize =
+                    AttributeSupport.getAttributeValue(poolConfigElement, new QName("failFastInitialize"));
+            if (failFastInitialize != null) {
+                // V4 Deprecation
+                DeprecationSupport.warnOnce(ObjectType.ATTRIBUTE, "failfastInitialize (on a ConnectionPool element)", 
+                        null, "failfastInitialize (on a DataConnector)");
+                connectionFactory.addPropertyValue("failFastInitialize", failFastInitialize);
             }
-            return poolConfig.getBeanDefinition();
+            connectionFactory.setInitMethodName("initialize");
+            return connectionFactory.getBeanDefinition();
         }
+
+        // CheckStyle: MethodLength ON
 
         /**
          * Creates a new sasl config bean definition from a v2 XML configuration.
@@ -711,23 +685,13 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             final List<Element> saslProperties = ElementSupport.getChildElementsByTagNameNS(saslConfigElement,
                     AttributeResolverNamespaceHandler.NAMESPACE, "SASLProperty");
 
-            final BeanDefinitionBuilder saslConfig;
-            if ("DIGEST_MD5".equals(mechanism)) {
-                saslConfig = BeanDefinitionBuilder.genericBeanDefinition(DigestMd5Config.class);
-                if (realm != null) {
-                    saslConfig.addPropertyValue("realm", realm);
-                }
-            } else if ("GSSAPI".equals(mechanism)) {
-                saslConfig = BeanDefinitionBuilder.genericBeanDefinition(GssApiConfig.class);
-                if (realm != null) {
-                    saslConfig.addPropertyValue("realm", realm);
-                }
-            } else {
-                saslConfig = BeanDefinitionBuilder.genericBeanDefinition(SaslConfig.class);
-                saslConfig.addPropertyValue("mechanism", mechanism);
-            }
+            final BeanDefinitionBuilder saslConfig = BeanDefinitionBuilder.genericBeanDefinition(SaslConfig.class);
+            saslConfig.addPropertyValue("mechanism", mechanism);
             if (authorizationId != null) {
                 saslConfig.addPropertyValue("authorizationId", authorizationId);
+            }
+            if (realm != null) {
+                saslConfig.addPropertyValue("realm", realm);
             }
 
             if (!saslProperties.isEmpty()) {
@@ -735,17 +699,27 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
                     final String name = AttributeSupport.getAttributeValue(property, null, "name");
                     final String value = AttributeSupport.getAttributeValue(property, null, "value");
                     if ("javax.security.sasl.qop".equals(name)) {
-                        if ("auth".equalsIgnoreCase(value)) {
-                            saslConfig.addPropertyValue("qualityOfProtection", "AUTH");
-                        } else if ("auth-int".equalsIgnoreCase(value)) {
-                            saslConfig.addPropertyValue("qualityOfProtection", "AUTH_INT");
-                        } else if ("auth-conf".equalsIgnoreCase(value)) {
-                            saslConfig.addPropertyValue("qualityOfProtection", "AUTH_CONF");
-                        } else {
-                            saslConfig.addPropertyValue("qualityOfProtection", value);
+                        final String[] splitValues = value.split(",");
+                        final String[] values = new String[splitValues.length];
+                        for (int i = 0; i < splitValues.length; i++) {
+                            if ("auth".equalsIgnoreCase(splitValues[i].trim())) {
+                                values[i] = "AUTH";
+                            } else if ("auth-int".equalsIgnoreCase(splitValues[i].trim())) {
+                                values[i] = "AUTH_INT";
+                            } else if ("auth-conf".equalsIgnoreCase(splitValues[i].trim())) {
+                                values[i] = "AUTH_CONF";
+                            } else {
+                                values[i] = splitValues[i].trim();
+                            }
                         }
+                        saslConfig.addPropertyValue("qualityOfProtection", values);
                     } else if ("javax.security.sasl.strength".equals(name)) {
-                        saslConfig.addPropertyValue("securityStrength", value);
+                        final String[] splitValues = value.split(",");
+                        final String[] values = new String[splitValues.length];
+                        for (int i = 0; i < splitValues.length; i++) {
+                            values[i] = splitValues[i].trim();
+                        }
+                        saslConfig.addPropertyValue("securityStrength", values);
                     } else if ("javax.security.sasl.server.authentication".equals(name)) {
                         saslConfig.addPropertyValue("mutualAuthentication", value);
                     }
@@ -841,19 +815,18 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
         }
 
         /**
-         * Returns a search validator or null if validatePeriodically is false.
+         * Returns a search validator.
          *
-         * @param validatePeriodically whether to create a search validator
          * @param validateDN baseDN to search on
          * @param validateFilter to search with
+         * @param validatePeriod period over which to validate connection when periodic validation in enabled
          *
          * @return  search validator or null
          */
-        @Nullable public static SearchValidator buildSearchValidator(@Nullable final String validatePeriodically,
-                @Nullable final String validateDN, @Nullable final String validateFilter) {
-            if (!Boolean.valueOf(validatePeriodically)) {
-                return null;
-            }
+        @Nullable public static SearchConnectionValidator buildSearchValidator(
+                @Nullable final String validateDN,
+                @Nullable final String validateFilter,
+                @Nullable final String validatePeriod) {
             final SearchRequest searchRequest = new SearchRequest();
             searchRequest.setReturnAttributes("1.1");
             searchRequest.setSearchScope(SearchScope.OBJECT);
@@ -863,14 +836,17 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
             } else {
                 searchRequest.setBaseDn("");
             }
-            final SearchFilter searchFilter = new SearchFilter();
+            final FilterTemplate searchFilter = new FilterTemplate();
             if (validateFilter != null) {
                 searchFilter.setFilter(validateFilter);
             } else {
                 searchFilter.setFilter("(objectClass=*)");
             }
-            searchRequest.setSearchFilter(searchFilter);
-            final SearchValidator validator = new SearchValidator();
+            searchRequest.setFilter(searchFilter);
+            final SearchConnectionValidator validator = new SearchConnectionValidator();
+            if (validatePeriod != null) {
+                validator.setValidatePeriod(Duration.parse(validatePeriod));
+            }
             validator.setSearchRequest(searchRequest);
             return validator;
         }
@@ -892,9 +868,9 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
          * @param lowercaseAttributeNames boolean string value
          * @return list of search entry handlers
          */
-        @Nonnull public static List<SearchEntryHandler> buildSearchEntryHandlers(
+        @Nonnull public static List<LdapEntryHandler> buildSearchEntryHandlers(
                 @Nullable final String lowercaseAttributeNames) {
-            final List<SearchEntryHandler> handlers = new ArrayList<>();
+            final List<LdapEntryHandler> handlers = new ArrayList<>();
             handlers.add(new DnAttributeEntryHandler());
             if (Boolean.valueOf(lowercaseAttributeNames)) {
                 final CaseChangeEntryHandler entryHandler = new CaseChangeEntryHandler();
@@ -905,16 +881,18 @@ public class LDAPDataConnectorParser extends AbstractDataConnectorParser {
         }
 
         /**
-         * Returns a search referral handler or null if followReferrals is false.
+         * Returns search referral handlers or null if followReferrals is false.
          *
          * @param followReferrals whether to create a search referral handler
          *
-         * @return  search referral handler or null
+         * @return  search result handlers or null
          */
-        @Nonnull public static SearchReferralHandler buildReferralHandler(
+        @Nonnull public static List<SearchResultHandler> buildReferralHandlers(
                 @Nullable final String followReferrals) {
+            final List<SearchResultHandler> handlers = new ArrayList<>();
             if (followReferrals != null && Boolean.valueOf(followReferrals)) {
-                return new SearchReferralHandler();
+                handlers.add(new FollowSearchReferralHandler());
+                return handlers;
             }
             return null;
         }

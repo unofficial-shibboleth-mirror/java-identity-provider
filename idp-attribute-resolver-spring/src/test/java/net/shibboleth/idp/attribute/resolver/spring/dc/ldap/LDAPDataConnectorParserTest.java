@@ -35,22 +35,25 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.ldaptive.BindConnectionInitializer;
+import org.ldaptive.BindResponse;
 import org.ldaptive.ConnectionConfig;
 import org.ldaptive.DefaultConnectionFactory;
-import org.ldaptive.SearchExecutor;
-import org.ldaptive.pool.BlockingConnectionPool;
+import org.ldaptive.PooledConnectionFactory;
+import org.ldaptive.SearchOperation;
+import org.ldaptive.filter.EqualityFilter;
 import org.ldaptive.pool.IdlePruneStrategy;
-import org.ldaptive.pool.PoolConfig;
-import org.ldaptive.pool.PooledConnectionFactory;
-import org.ldaptive.pool.SearchValidator;
-import org.ldaptive.referral.SearchReferralHandler;
-import org.ldaptive.sasl.DigestMd5Config;
+import org.ldaptive.SearchConnectionValidator;
+import org.ldaptive.referral.FollowSearchReferralHandler;
+import org.ldaptive.sasl.DefaultSaslClientRequest;
+import org.ldaptive.sasl.DigestMD5BindRequest;
 import org.ldaptive.sasl.Mechanism;
 import org.ldaptive.sasl.QualityOfProtection;
+import org.ldaptive.sasl.SaslClient;
 import org.ldaptive.sasl.SaslConfig;
 import org.ldaptive.sasl.SecurityStrength;
 import org.ldaptive.ssl.CredentialConfig;
 import org.ldaptive.ssl.SslConfig;
+import org.ldaptive.transport.TransportConnection;
 import org.springframework.beans.factory.xml.XmlBeanDefinitionReader;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.io.ClassPathResource;
@@ -102,7 +105,17 @@ public class LDAPDataConnectorParserTest {
     private InMemoryDirectoryServer directoryServer;
     
     private GenericApplicationContext pendingTeardownContext = null;
-    
+
+    /** Override the default SASL client for testing. */
+    public static class TestSaslClient implements SaslClient<DefaultSaslClientRequest>
+    {
+
+        @Override
+        public BindResponse bind(final TransportConnection conn, final DefaultSaslClientRequest request) {
+            return BindResponse.builder().resultCode(org.ldaptive.ResultCode.SUCCESS).build();
+        }
+    }
+
     @AfterMethod public void tearDownTestContext() {
         if (null == pendingTeardownContext ) {
             return;
@@ -165,6 +178,9 @@ public class LDAPDataConnectorParserTest {
         directoryServer.importFromLDIF(true,
                 "src/test/resources/net/shibboleth/idp/attribute/resolver/spring/dc/ldap/ldapDataConnectorTest.ldif");
         directoryServer.startListening();
+        System.setProperty(
+                "org.ldaptive.sasl.defaultSaslClient",
+                TestSaslClient.class.getName());
     }
 
     /**
@@ -172,6 +188,7 @@ public class LDAPDataConnectorParserTest {
      */
     @AfterClass public void teardownDirectoryServer() {
         directoryServer.shutDown(true);
+        System.clearProperty("org.ldaptive.sasl.defaultSaslClient");
     }
 
     @Test public void v2Config() throws Exception {
@@ -235,9 +252,8 @@ public class LDAPDataConnectorParserTest {
         final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
         assertEquals(connConfig.getLdapUrl(), "ldap://localhost:10389");
-        assertFalse(connConfig.getUseSSL());
         assertFalse(connConfig.getUseStartTLS());
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertEquals(connInitializer.getBindDn(), "cn=Directory Manager");
         assertEquals(connInitializer.getBindCredential().getString(), "password");
         assertEquals(connConfig.getConnectTimeout(), Duration.ofSeconds(3));
@@ -248,12 +264,12 @@ public class LDAPDataConnectorParserTest {
         final CredentialConfig credentialConfig = sslConfig.getCredentialConfig();
         assertNotNull(credentialConfig);
 
-        final SearchExecutor searchExecutor = dataConnector.getSearchExecutor();
-        assertNotNull(searchExecutor);
-        assertEquals(searchExecutor.getBaseDn(), "");
-        assertNull(searchExecutor.getSearchFilter());
-        assertEquals(searchExecutor.getTimeLimit(), Duration.ofSeconds(3));
-        assertNull(searchExecutor.getReferralHandler());
+        final SearchOperation searchOperation = dataConnector.getSearchOperation();
+        assertNotNull(searchOperation);
+        assertEquals(searchOperation.getRequest().getBaseDn(), "");
+        assertNull(searchOperation.getRequest().getFilter());
+        assertEquals(searchOperation.getRequest().getTimeLimit(), Duration.ofSeconds(3));
+        assertNull(searchOperation.getSearchResultHandlers());
 
         final ConnectionFactoryValidator validator = (ConnectionFactoryValidator) dataConnector.getValidator();
         assertNotNull(validator);
@@ -287,45 +303,42 @@ public class LDAPDataConnectorParserTest {
         assertEquals(Duration.ZERO, dataConnector.getNoRetryDelay());
         final PooledConnectionFactory connFactory = (PooledConnectionFactory) dataConnector.getConnectionFactory();
         assertNotNull(connFactory);
-        final BlockingConnectionPool connPool = (BlockingConnectionPool) connFactory.getConnectionPool();
-        assertNotNull(connPool);
-        assertNull(connPool.getBlockWaitTime());
-        assertEquals("resolver-pool", connPool.getName());
-        final PoolConfig poolConfig = connPool.getPoolConfig();
-        assertNotNull(poolConfig);
-        assertEquals(poolConfig.getMinPoolSize(), 0);
-        assertEquals(poolConfig.getMaxPoolSize(), 3);
-        assertFalse(poolConfig.isValidatePeriodically());
-        assertEquals(poolConfig.getValidatePeriod(), Duration.ofMinutes(30));
-        assertTrue(connPool.getFailFastInitialize());
-        assertNull(connPool.getValidator());
+        // note that default value changed from null to PT1M
+        assertEquals(connFactory.getBlockWaitTime(), Duration.ofMinutes(1));
+        assertEquals("resolver-pool", connFactory.getName());
+        assertEquals(connFactory.getMinPoolSize(), 0);
+        assertEquals(connFactory.getMaxPoolSize(), 3);
+        assertFalse(connFactory.isValidatePeriodically());
+        // note that pooled connection factories have a validator by default
+        assertNotNull(connFactory.getValidator());
+        assertEquals(connFactory.getValidator().getValidatePeriod(), Duration.ofMinutes(30));
+        assertTrue(connFactory.getFailFastInitialize());
 
-        final IdlePruneStrategy pruneStrategy = (IdlePruneStrategy) connPool.getPruneStrategy();
+        final IdlePruneStrategy pruneStrategy = (IdlePruneStrategy) connFactory.getPruneStrategy();
         assertNotNull(pruneStrategy);
         assertEquals(pruneStrategy.getPrunePeriod(), Duration.ofMinutes(5));
         assertEquals(pruneStrategy.getIdleTime(), Duration.ofMinutes(10));
 
-        final ConnectionConfig connConfig = connPool.getConnectionFactory().getConnectionConfig();
+        final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
         assertEquals(connConfig.getLdapUrl(), "ldap://localhost:10389");
-        assertFalse(connConfig.getUseSSL());
         assertFalse(connConfig.getUseStartTLS());
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertEquals(connInitializer.getBindDn(), "cn=Directory Manager");
         assertEquals(connInitializer.getBindCredential().getString(), "password");
         assertEquals(connConfig.getConnectTimeout(), Duration.ofSeconds(3));
         assertEquals(connConfig.getResponseTimeout(), Duration.ofSeconds(3));
 
-        final SslConfig sslConfig = connPool.getConnectionFactory().getConnectionConfig().getSslConfig();
+        final SslConfig sslConfig = connFactory.getConnectionConfig().getSslConfig();
         assertNotNull(sslConfig);
         final CredentialConfig credentialConfig = sslConfig.getCredentialConfig();
         assertNotNull(credentialConfig);
 
-        final SearchExecutor searchExecutor = dataConnector.getSearchExecutor();
-        assertNotNull(searchExecutor);
-        assertEquals(searchExecutor.getBaseDn(), "");
-        assertNull(searchExecutor.getSearchFilter());
-        assertEquals(searchExecutor.getTimeLimit(), Duration.ofSeconds(3));
+        final SearchOperation searchOperation = dataConnector.getSearchOperation();
+        assertNotNull(searchOperation);
+        assertEquals(searchOperation.getRequest().getBaseDn(), "");
+        assertNull(searchOperation.getRequest().getFilter());
+        assertEquals(searchOperation.getRequest().getTimeLimit(), Duration.ofSeconds(3));
 
         final ConnectionFactoryValidator validator = (ConnectionFactoryValidator) dataConnector.getValidator();
         assertNotNull(validator);
@@ -383,7 +396,7 @@ public class LDAPDataConnectorParserTest {
         assertNotNull(connFactory);
         final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertNotNull(connInitializer);
         assertEquals(connInitializer.getBindDn(), "manager@shibboleth.net");
         assertEquals(connInitializer.getBindCredential().getString(), "password");
@@ -392,9 +405,9 @@ public class LDAPDataConnectorParserTest {
         assertEquals(saslConfig.getMechanism(), Mechanism.DIGEST_MD5);
         assertEquals(saslConfig.getAuthorizationId(), "authzID");
         assertEquals(saslConfig.getMutualAuthentication(), Boolean.TRUE);
-        assertEquals(saslConfig.getQualityOfProtection(), QualityOfProtection.AUTH_INT);
-        assertEquals(saslConfig.getSecurityStrength(), SecurityStrength.HIGH);
-        assertEquals(((DigestMd5Config) saslConfig).getRealm(), "shibboleth.net");
+        assertEquals(saslConfig.getQualityOfProtection()[0], QualityOfProtection.AUTH_INT);
+        assertEquals(saslConfig.getSecurityStrength()[0], SecurityStrength.HIGH);
+        assertEquals(saslConfig.getRealm(), "shibboleth.net");
     }
 
     @Test public void v2AuthenticationTypeConfig() throws Exception {
@@ -408,14 +421,14 @@ public class LDAPDataConnectorParserTest {
         assertNotNull(connFactory);
         final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertNotNull(connInitializer);
         assertEquals(connInitializer.getBindDn(), "manager@shibboleth.net");
         assertEquals(connInitializer.getBindCredential().getString(), "password");
         final SaslConfig saslConfig = connInitializer.getBindSaslConfig();
         assertNotNull(saslConfig);
         assertEquals(saslConfig.getMechanism(), Mechanism.DIGEST_MD5);
-        assertEquals(saslConfig.getAuthorizationId(), "");
+        assertNull(saslConfig.getAuthorizationId());
         assertNull(saslConfig.getMutualAuthentication());
         assertNull(saslConfig.getQualityOfProtection());
         assertNull(saslConfig.getSecurityStrength());
@@ -432,17 +445,18 @@ public class LDAPDataConnectorParserTest {
         assertNotNull(connFactory);
         final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertNotNull(connInitializer);
         final SaslConfig saslConfig = connInitializer.getBindSaslConfig();
         assertNull(saslConfig);
 
-        final SearchExecutor searchExecutor = dataConnector.getSearchExecutor();
-        assertNotNull(searchExecutor);
-        assertEquals(searchExecutor.getBaseDn(), "");
-        assertNull(searchExecutor.getSearchFilter());
-        assertEquals(searchExecutor.getTimeLimit(), Duration.ofSeconds(3));
-        final SearchReferralHandler referralHandler = (SearchReferralHandler) searchExecutor.getReferralHandler();
+        final SearchOperation searchOperation = dataConnector.getSearchOperation();
+        assertNotNull(searchOperation);
+        assertNotNull(searchOperation.getRequest());
+        assertEquals(searchOperation.getRequest().getBaseDn(), "");
+        assertNull(searchOperation.getRequest().getFilter());
+        assertEquals(searchOperation.getRequest().getTimeLimit(), Duration.ofSeconds(3));
+        final FollowSearchReferralHandler referralHandler = (FollowSearchReferralHandler) searchOperation.getSearchResultHandlers()[0];
         assertNotNull(referralHandler);
     }
 
@@ -457,7 +471,7 @@ public class LDAPDataConnectorParserTest {
         assertNotNull(connFactory);
         final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertNotNull(connInitializer);
         assertNull(connInitializer.getBindDn());
         assertNull(connInitializer.getBindCredential());
@@ -589,50 +603,45 @@ public class LDAPDataConnectorParserTest {
 
         final PooledConnectionFactory connFactory = (PooledConnectionFactory) dataConnector.getConnectionFactory();
         assertNotNull(connFactory);
-        final BlockingConnectionPool connPool = (BlockingConnectionPool) connFactory.getConnectionPool();
-        assertNotNull(connPool);
-        assertEquals(connPool.getBlockWaitTime(), Duration.ofSeconds(5));
-        assertEquals(connPool.getName(), "resolver-pool");
-        final PoolConfig poolConfig = connPool.getPoolConfig();
-        assertNotNull(poolConfig);
-        assertEquals(poolConfig.getMinPoolSize(), 5);
-        assertEquals(poolConfig.getMaxPoolSize(), 10);
-        assertTrue(poolConfig.isValidatePeriodically());
-        assertEquals(poolConfig.getValidatePeriod(), Duration.ofMinutes(15));
-        assertFalse(connPool.getFailFastInitialize());
+        assertEquals(connFactory.getBlockWaitTime(), Duration.ofSeconds(5));
+        assertEquals(connFactory.getName(), "resolver-pool");
+        assertEquals(connFactory.getMinPoolSize(), 5);
+        assertEquals(connFactory.getMaxPoolSize(), 10);
+        assertTrue(connFactory.isValidatePeriodically());
+        assertEquals(connFactory.getValidator().getValidatePeriod(), Duration.ofMinutes(15));
+        assertFalse(connFactory.getFailFastInitialize());
 
-        final SearchValidator searchValidator = (SearchValidator) connPool.getValidator();
+        final SearchConnectionValidator searchValidator = (SearchConnectionValidator) connFactory.getValidator();
         assertNotNull(searchValidator);
         assertEquals(searchValidator.getSearchRequest().getBaseDn(), "dc=shibboleth,dc=net");
-        assertEquals(searchValidator.getSearchRequest().getSearchFilter().getFilter(), "(ou=people)");
+        assertEquals(searchValidator.getSearchRequest().getFilter(), new EqualityFilter("ou", "people"));
 
-        final IdlePruneStrategy pruneStrategy = (IdlePruneStrategy) connPool.getPruneStrategy();
+        final IdlePruneStrategy pruneStrategy = (IdlePruneStrategy) connFactory.getPruneStrategy();
         assertNotNull(pruneStrategy);
         assertEquals(pruneStrategy.getPrunePeriod(), Duration.ofMinutes(5));
         assertEquals(pruneStrategy.getIdleTime(), Duration.ofMinutes(10));
 
-        final ConnectionConfig connConfig = connPool.getConnectionFactory().getConnectionConfig();
+        final ConnectionConfig connConfig = connFactory.getConnectionConfig();
         assertNotNull(connConfig);
         assertEquals(connConfig.getLdapUrl(), "ldap://localhost:10389");
-        assertFalse(connConfig.getUseSSL());
         assertTrue(connConfig.getUseStartTLS());
-        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializer();
+        final BindConnectionInitializer connInitializer = (BindConnectionInitializer) connConfig.getConnectionInitializers()[0];
         assertEquals(connInitializer.getBindDn(), "cn=Directory Manager");
         assertEquals(connInitializer.getBindCredential().getString(), "password");
         assertEquals(connConfig.getConnectTimeout(), Duration.ofSeconds(2));
         assertEquals(connConfig.getResponseTimeout(), Duration.ofSeconds(4));
 
-        final SslConfig sslConfig = connPool.getConnectionFactory().getConnectionConfig().getSslConfig();
+        final SslConfig sslConfig = connFactory.getConnectionConfig().getSslConfig();
         assertNotNull(sslConfig);
         final CredentialConfig credentialConfig = sslConfig.getCredentialConfig();
         assertNotNull(credentialConfig);
 
-        final SearchExecutor searchExecutor = dataConnector.getSearchExecutor();
-        assertNotNull(searchExecutor);
-        assertEquals(searchExecutor.getBaseDn(), "ou=people,dc=shibboleth,dc=net");
-        assertNull(searchExecutor.getSearchFilter());
-        assertEquals(searchExecutor.getTimeLimit(), Duration.ofSeconds(7));
-        assertNull(searchExecutor.getReferralHandler());
+        final SearchOperation searchOperation = dataConnector.getSearchOperation();
+        assertNotNull(searchOperation);
+        assertEquals(searchOperation.getRequest().getBaseDn(), "ou=people,dc=shibboleth,dc=net");
+        assertNull(searchOperation.getRequest().getFilter());
+        assertEquals(searchOperation.getRequest().getTimeLimit(), Duration.ofSeconds(7));
+        assertNull(searchOperation.getSearchResultHandlers());
 
         final ConnectionFactoryValidator validator = (ConnectionFactoryValidator) dataConnector.getValidator();
         assertNotNull(validator);

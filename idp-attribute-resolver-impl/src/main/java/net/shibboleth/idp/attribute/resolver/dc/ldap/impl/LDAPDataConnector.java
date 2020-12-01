@@ -17,7 +17,6 @@
 
 package net.shibboleth.idp.attribute.resolver.dc.ldap.impl;
 
-import java.security.GeneralSecurityException;
 import java.util.Map;
 
 import javax.annotation.Nonnull;
@@ -27,8 +26,8 @@ import org.ldaptive.Connection;
 import org.ldaptive.ConnectionConfig;
 import org.ldaptive.ConnectionFactory;
 import org.ldaptive.LdapException;
-import org.ldaptive.SearchExecutor;
-import org.ldaptive.SearchResult;
+import org.ldaptive.SearchOperation;
+import org.ldaptive.SearchResponse;
 import org.ldaptive.ssl.SSLContextInitializer;
 import org.ldaptive.ssl.SslConfig;
 import org.ldaptive.ssl.X509SSLContextInitializer;
@@ -60,7 +59,7 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
     private ConnectionFactory connectionFactory;
 
     /** For executing LDAP searches. */
-    private SearchExecutor searchExecutor;
+    private SearchOperation searchOperation;
 
     /** Whether the default validator is being used. */
     private boolean defaultValidator = true;
@@ -96,24 +95,24 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
     }
 
     /**
-     * Gets the search executor for executing searches.
+     * Gets the search operation for executing searches.
      * 
-     * @return search executor for executing searches
+     * @return search operation for executing searches
      */
-    public SearchExecutor getSearchExecutor() {
-        return searchExecutor;
+    public SearchOperation getSearchOperation() {
+        return searchOperation;
     }
 
     /**
      * Sets the search executor for executing searches.
      * 
-     * @param executor search executor for executing searches
+     * @param operation search operation for executing searches
      */
-    public void setSearchExecutor(@Nonnull final SearchExecutor executor) {
+    public void setSearchOperation(@Nonnull final SearchOperation operation) {
         ComponentSupport.ifInitializedThrowUnmodifiabledComponentException(this);
         ComponentSupport.ifDestroyedThrowDestroyedComponentException(this);
 
-        searchExecutor = Constraint.isNotNull(executor, "LDAP search executor can not be null");
+        searchOperation = Constraint.isNotNull(operation, "LDAP search executor can not be null");
     }
 
     /** {@inheritDoc} */
@@ -133,8 +132,8 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
         if (connectionFactory == null) {
             throw new ComponentInitializationException(getLogPrefix() + " No connection factory was configured");
         }
-        if (searchExecutor == null) {
-            throw new ComponentInitializationException(getLogPrefix() + " No search executor was configured");
+        if (searchOperation == null) {
+            throw new ComponentInitializationException(getLogPrefix() + " No search operation was configured");
         }
 
         if (defaultValidator) {
@@ -165,16 +164,9 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
      * @throws ComponentInitializationException if we detect an SSL issue
      */
     private void policeForJVMTrust() throws ComponentInitializationException {
-        Connection conn = null;
         try {
-            conn = connectionFactory.getConnection();
-            if (conn == null) {
-                log.debug("{} No connection to probe", getLogPrefix());
-                return;
-            }
-            final ConnectionConfig connConfig = conn.getConnectionConfig();
+            final ConnectionConfig connConfig = connectionFactory.getConnectionConfig();
             if (connConfig.getUseStartTLS() ||
-                    connConfig.getUseSSL() ||
                     connConfig.getLdapUrl().toLowerCase().contains("ldaps://")) {
                 final SslConfig sslConfig = connConfig.getSslConfig();
                 if (sslConfig != null) {
@@ -188,16 +180,8 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
                     }
                 }
             }
-        } catch (final GeneralSecurityException | LdapException e) {
+        } catch (final Exception e) {
             log.debug("{} Failed to inspect SLL implementation", getLogPrefix(), e);
-        } finally {
-            if (conn != null) {
-                try {
-                    conn.close();
-                } catch (final Exception e) {
-                    log.debug("{} Error closing LDAP connection", getLogPrefix(), e);
-                }
-            }
         }
     }
  // CheckStyle: CyclomaticComplexity ON
@@ -218,7 +202,7 @@ public class LDAPDataConnector extends AbstractSearchDataConnector<ExecutableSea
             throw new ResolutionException(getLogPrefix() + " Search filter cannot be null");
         }
         try {
-            final SearchResult result = filter.execute(searchExecutor, connectionFactory);
+            final SearchResponse result = filter.execute(searchOperation, connectionFactory);
             log.trace("{} Search returned {}", getLogPrefix(), result);
             return getMappingStrategy().map(result);
         } catch (final LdapException e) {

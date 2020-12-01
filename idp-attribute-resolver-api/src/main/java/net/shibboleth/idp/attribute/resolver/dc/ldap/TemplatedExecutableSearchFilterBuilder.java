@@ -31,7 +31,7 @@ import org.apache.velocity.app.event.EventCartridge;
 import org.apache.velocity.app.event.ReferenceInsertionEventHandler;
 import org.apache.velocity.context.Context;
 import org.apache.velocity.exception.VelocityException;
-import org.ldaptive.SearchFilter;
+import org.ldaptive.FilterTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -191,7 +191,7 @@ public class TemplatedExecutableSearchFilterBuilder extends AbstractExecutableSe
         }
 
         try {
-            final SearchFilter searchFilter = new SearchFilter(merge(context));
+            final FilterTemplate searchFilter = new FilterTemplate(merge(context));
             return super.build(searchFilter);
         } catch (final VelocityException e) {
             log.error("Error running template: {}", e.getMessage());
@@ -256,7 +256,7 @@ public class TemplatedExecutableSearchFilterBuilder extends AbstractExecutableSe
         }
 
         /**
-         * Returns {@link SearchFilter#encodeValue} if value is a string.
+         * Returns {@link FilterTemplate#encodeValue} if value is a string.
          * 
          * @param value to encode
          *
@@ -264,9 +264,9 @@ public class TemplatedExecutableSearchFilterBuilder extends AbstractExecutableSe
          */
         private Object encode(final Object value) {
             if (value instanceof String){ 
-                return SearchFilter.encodeValue((String) value);
+                return FilterTemplate.encodeValue((String) value);
             } else if (value instanceof byte[]) {
-                return SearchFilter.encodeValue((byte[]) value);
+                return FilterTemplate.encodeValue((byte[]) value);
             }
             return value;
         }

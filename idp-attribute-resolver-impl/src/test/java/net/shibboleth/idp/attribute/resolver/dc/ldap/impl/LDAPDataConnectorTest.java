@@ -33,7 +33,8 @@ import javax.annotation.Nonnull;
 
 import org.ldaptive.ConnectionFactory;
 import org.ldaptive.DefaultConnectionFactory;
-import org.ldaptive.SearchExecutor;
+import org.ldaptive.SearchOperation;
+import org.ldaptive.SearchRequest;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -123,10 +124,10 @@ public class LDAPDataConnectorTest {
         connector.setId(TEST_CONNECTOR_NAME);
         final ConnectionFactory connectionFactory = new DefaultConnectionFactory("ldap://localhost:10389");
         connector.setConnectionFactory(connectionFactory);
-        final SearchExecutor searchExecutor = new SearchExecutor();
-        searchExecutor.setBaseDn(TEST_BASE_DN);
-        searchExecutor.setReturnAttributes(TEST_RETURN_ATTRIBUTES);
-        connector.setSearchExecutor(searchExecutor);
+        final SearchOperation searchOperation = new SearchOperation();
+        searchOperation.setRequest(
+            SearchRequest.builder().dn(TEST_BASE_DN).returnAttributes(TEST_RETURN_ATTRIBUTES).build());
+        connector.setSearchOperation(searchOperation);
         connector.setExecutableSearchBuilder(builder == null ? 
                                              newParameterizedExecutableSearchFilterBuilder("(uid={principalName})") : builder);
         connector.setValidator(newConnectionFactoryValidator(connectionFactory));
@@ -155,10 +156,10 @@ public class LDAPDataConnectorTest {
         }
         connector.setFailFastInitialize(true);
 
-        final SearchExecutor searchExecutor = new SearchExecutor();
-        searchExecutor.setBaseDn(TEST_BASE_DN);
-        searchExecutor.setReturnAttributes(TEST_RETURN_ATTRIBUTES);
-        connector.setSearchExecutor(searchExecutor);
+        final SearchOperation searchOperation = new SearchOperation();
+        searchOperation.setRequest(
+            SearchRequest.builder().dn(TEST_BASE_DN).returnAttributes(TEST_RETURN_ATTRIBUTES).build());
+        connector.setSearchOperation(searchOperation);
         try {
             connector.initialize();
             fail("No filter builder");
@@ -197,7 +198,7 @@ public class LDAPDataConnectorTest {
             // OK
         }
         assertEquals(connector.getConnectionFactory(), connectionFactory);
-        assertEquals(connector.getSearchExecutor(), searchExecutor);
+        assertEquals(connector.getSearchOperation(), searchOperation);
         assertEquals(connector.getExecutableSearchBuilder(), requestBuilder);
         assertEquals(connector.getMappingStrategy(), mappingStrategy);
     }
@@ -208,7 +209,7 @@ public class LDAPDataConnectorTest {
 
         final ConnectionFactory connectionFactory = new DefaultConnectionFactory("ldap://localhost:55555");
         connector.setConnectionFactory(connectionFactory);
-        connector.setSearchExecutor(new SearchExecutor());
+        connector.setSearchOperation(new SearchOperation());
         connector.setExecutableSearchBuilder(newParameterizedExecutableSearchFilterBuilder("(uid={principalName})"));
         connector.setFailFastInitialize(true);
 
@@ -267,10 +268,10 @@ public class LDAPDataConnectorTest {
         final ExecutableSearchFilter filter = builder.build(context, dependsAttributes);
         assertEquals(
                 filter.getSearchFilter().format(),
-                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2a))");
+                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2A))");
         assertEquals(
                 filter.getResultCacheKey(),
-                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2a))");
+                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2A))");
     }
 
     @Test public void escape() throws ComponentInitializationException, ResolutionException {
@@ -281,8 +282,8 @@ public class LDAPDataConnectorTest {
                 TestSources.createResolutionContext("domain\\user*", TestSources.IDP_ENTITY_ID,
                         TestSources.SP_ENTITY_ID);
         final ExecutableSearchFilter filter = builder.build(context, null);
-        assertEquals(filter.getSearchFilter().format(), "(cn=domain\\5cuser\\2a)");
-        assertEquals(filter.getResultCacheKey(), "(cn=domain\\5cuser\\2a)");
+        assertEquals(filter.getSearchFilter().format(), "(cn=domain\\5Cuser\\2A)");
+        assertEquals(filter.getResultCacheKey(), "(cn=domain\\5Cuser\\2A)");
     }
 
     @Test public void resolveTemplate() throws ComponentInitializationException, ResolutionException {
@@ -341,10 +342,10 @@ public class LDAPDataConnectorTest {
         final ExecutableSearchFilter filter = builder.build(context, dependsAttributes);
         assertEquals(
                 filter.getSearchFilter().format(),
-                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2a))");
+                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2A))");
         assertEquals(
                 filter.getResultCacheKey(),
-                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2a))");
+                "(&(cn=PETER_THE_PRINCIPAL)(eduPersonEntitlement=entitlement1)(eduPersonEntitlement=entitlement\\2A))");
     }
 
     @Test public void escapeTemplate() throws ComponentInitializationException, ResolutionException {
@@ -356,8 +357,8 @@ public class LDAPDataConnectorTest {
                 TestSources.createResolutionContext("domain\\user*", TestSources.IDP_ENTITY_ID,
                         TestSources.SP_ENTITY_ID);
         final ExecutableSearchFilter filter = builder.build(context, null);
-        assertEquals(filter.getSearchFilter().format(), "(cn=domain\\5cuser\\2a)");
-        assertEquals(filter.getResultCacheKey(), "(cn=domain\\5cuser\\2a)");
+        assertEquals(filter.getSearchFilter().format(), "(cn=domain\\5Cuser\\2A)");
+        assertEquals(filter.getResultCacheKey(), "(cn=domain\\5Cuser\\2A)");
     }
 
     protected void resolve(final ExecutableSearchBuilder<ExecutableSearchFilter> builder) throws ComponentInitializationException,

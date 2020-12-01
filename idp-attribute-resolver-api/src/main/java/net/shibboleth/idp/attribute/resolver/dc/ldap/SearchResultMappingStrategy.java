@@ -17,13 +17,13 @@
 
 package net.shibboleth.idp.attribute.resolver.dc.ldap;
 
-import org.ldaptive.SearchResult;
+import org.ldaptive.SearchResponse;
 
 import net.shibboleth.idp.attribute.resolver.dc.MappingStrategy;
 
 /**
- * Strategy for mapping from a {@link SearchResult} to a collection of 
+ * Strategy for mapping from a {@link SearchResponse} to a collection of
  * {@link net.shibboleth.idp.attribute.IdPAttribute}s.
  */
-public interface SearchResultMappingStrategy extends MappingStrategy<SearchResult> {
+public interface SearchResultMappingStrategy extends MappingStrategy<SearchResponse> {
 }

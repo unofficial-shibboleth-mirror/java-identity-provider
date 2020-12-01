@@ -21,12 +21,11 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.ldaptive.ConnectionFactory;
+import org.ldaptive.FilterTemplate;
 import org.ldaptive.LdapException;
-import org.ldaptive.Response;
 import org.ldaptive.ResultCode;
-import org.ldaptive.SearchExecutor;
-import org.ldaptive.SearchFilter;
-import org.ldaptive.SearchResult;
+import org.ldaptive.SearchOperation;
+import org.ldaptive.SearchResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +48,7 @@ public abstract class AbstractExecutableSearchFilterBuilder extends AbstractInit
      * @return executable search filter
      */
     // Checkstyle: AnonInnerLength OFF
-    protected ExecutableSearchFilter build(@Nonnull final SearchFilter searchFilter) {
+    protected ExecutableSearchFilter build(@Nonnull final FilterTemplate searchFilter) {
         return new ExecutableSearchFilter() {
 
             /** {@inheritDoc} */
@@ -58,20 +57,22 @@ public abstract class AbstractExecutableSearchFilterBuilder extends AbstractInit
             }
 
             /** {@inheritDoc} */
-            @Nonnull public SearchResult execute(@Nonnull final SearchExecutor executor,
+            @Nonnull public SearchResponse execute(@Nonnull final SearchOperation operation,
                     @Nonnull final ConnectionFactory factory) throws LdapException {
-                final Response<SearchResult> response = executor.search(factory, searchFilter);
+                final SearchOperation op = SearchOperation.copy(operation);
+                op.setConnectionFactory(factory);
+                final SearchResponse response = op.execute(searchFilter);
                 log.trace("Search returned response {}", response);
                 if (response.getResultCode() != ResultCode.SUCCESS) {
                     // It's possible for the LDAP to return partial results and report either a size limit or
                     // time limit result code. Throw if we don't receive all results.
                     throw new LdapException("Search operation did not return success: " + response.getResultCode());
                 }
-                return response.getResult();
+                return response;
             }
 
             /** {@inheritDoc} */
-            @Nonnull public SearchFilter getSearchFilter() {
+            @Nonnull public FilterTemplate getSearchFilter() {
                 return searchFilter;
             }
 
