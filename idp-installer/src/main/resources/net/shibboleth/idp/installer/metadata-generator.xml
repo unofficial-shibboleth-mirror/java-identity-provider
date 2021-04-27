@@ -19,7 +19,8 @@
 		class="net.shibboleth.idp.installer.metadata.impl.MetadataGeneratorParametersImpl"
 		p:encryptionCertResource="%{idp.encryption.cert}"
         p:signingCertResource="%{idp.signing.cert}"
-        p:backchannelCertResource="%{idp.backchannel.cert}"
+        p:backchannelCertResource="#{ environment.containsProperty('idp.backchannel.cert')  ? '%{idp.backchannel.cert:0}' : null}"
         p:dnsName="%{idp.dnsname}"
-		p:entityID="%{idp.entityID}" p:scope="%{idp.scope}" />
+		p:entityID="%{idp.entityID}"
+        p:scope="%{idp.scope}" />
 </beans>

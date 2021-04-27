@@ -51,7 +51,7 @@ public class MetadataGeneratorParametersImpl extends AbstractInitializableCompon
     /**
      * The file with the certificate that TLS uses to 'sign'.
      */
-    private File backChannelCert;
+    @Nullable private File backChannelCert;
 
     /**
      * The strings with the back channel cert in them (to allow for multiline output).
@@ -144,12 +144,16 @@ public class MetadataGeneratorParametersImpl extends AbstractInitializableCompon
      *
      * @param resource what to set.
      */
-    public void setBackchannelCertResource(final Resource resource) {
-        try {
-            backChannelCert = resource.getFile();
-        } catch (final IOException e) {
-            backChannelCert = null;
-        } 
+    public void setBackchannelCertResource(@Nullable final Resource resource) {
+        if (resource == null) {
+           backChannelCert = null;
+        } else {
+            try {
+                backChannelCert = resource.getFile();
+            } catch (final IOException e) {
+                backChannelCert = null;
+            }
+        }
     }
 
 
@@ -160,7 +164,7 @@ public class MetadataGeneratorParametersImpl extends AbstractInitializableCompon
      * @return the contents
      * @throws IOException if badness occurrs.
      */
-    private List<String> getCertificateContents(final File file) throws IOException {
+    private List<String> getCertificateContents(@Nullable final File file) throws IOException {
         if (null == file || !file.exists()) {
             return null;
         }
