@@ -73,7 +73,7 @@
         <opensaml.version>4.1.1</opensaml.version>
         <spring-extensions.version>6.1.3-SNAPSHOT</spring-extensions.version>
         <checkstyle.configLocation>${project.basedir}/../idp-parent/resources/checkstyle/checkstyle.xml</checkstyle.configLocation>
-        <idp-parent.site.url>${shibboleth.site.url}java-identity-provider/${project.version}/</idp-parent.site.url>
+        <idp-parent.site.url>${shibboleth.site.deploy.url}java-identity-provider/${project.version}/</idp-parent.site.url>
         <idp-module.site.url>${idp-parent.site.url}${project.artifactId}</idp-module.site.url>
     </properties>
 
@@ -95,7 +95,7 @@
     </repositories>
 
     <dependencies>
-    <!-- This file should contain NO additional dependencies.  See IDP-1620. -->
+    <!-- This file should contain NO additional dependencies unless they truly apply to every "every module. See IDP-1620. -->
         <dependency>
             <groupId>${slf4j.groupId}</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -153,18 +153,6 @@
                 <version>${spring-extensions.version}</version>
             </dependency>
 
-            <dependency>
-                <groupId>${spring-webflow.groupId}</groupId>
-                <artifactId>spring-webflow</artifactId>
-                <version>${spring-webflow.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>commons-logging</groupId>
-                        <artifactId>commons-logging</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
             <!-- Provided Dependencies -->
 
             <!-- Runtime Dependencies -->
@@ -197,7 +185,7 @@
     <distributionManagement>
         <site>
             <id>site</id>
-            <url>dav:${idp-parent.site.url}</url>
+            <url>scp:${idp-parent.site.url}</url>
         </site>
     </distributionManagement>
 
