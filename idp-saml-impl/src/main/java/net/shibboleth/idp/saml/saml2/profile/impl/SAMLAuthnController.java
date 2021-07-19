@@ -18,6 +18,7 @@
 package net.shibboleth.idp.saml.saml2.profile.impl;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,6 +39,8 @@ import net.shibboleth.utilities.java.support.component.AbstractInitializableComp
 import net.shibboleth.utilities.java.support.component.ComponentInitializationException;
 import net.shibboleth.utilities.java.support.component.ComponentSupport;
 import net.shibboleth.utilities.java.support.logic.Constraint;
+import net.shibboleth.utilities.java.support.security.IdentifierGenerationStrategy;
+import net.shibboleth.utilities.java.support.security.impl.SecureRandomIdentifierGenerationStrategy;
 
 import org.opensaml.messaging.context.MessageContext;
 import org.opensaml.messaging.context.navigate.ChildContextLookup;
@@ -83,7 +86,10 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
     
     /** Map of binding short names to deduce inbound binding constant. */
     @Nonnull @NonnullElements private Map<String,BindingDescriptor> bindingMap;
-    
+
+    /** Strategy used to locate the {@link IdentifierGenerationStrategy} to use. */
+    @Nonnull private Function<ProfileRequestContext,IdentifierGenerationStrategy> idGeneratorLookupStrategy;
+
     /** Constructor. */
     public SAMLAuthnController() {
         // PRC -> AC -> nested PRC
@@ -93,6 +99,9 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
         // PRC -> AC -> SAMLAuthnContext
         samlContextLookupStrategy = new ChildContextLookup<>(SAMLAuthnContext.class).compose(
                 new ChildContextLookup<>(AuthenticationContext.class));
+        
+        // Default strategy is a 16-byte secure random source.
+        idGeneratorLookupStrategy = prc -> new SecureRandomIdentifierGenerationStrategy();
         
         bindingMap = Collections.emptyMap();
     }
@@ -123,6 +132,19 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
     }
     
     /**
+     * Set the strategy used to locate the {@link IdentifierGenerationStrategy} to use.
+     * 
+     * @param strategy lookup strategy
+     */
+    public void setIdentifierGeneratorLookupStrategy(
+            @Nonnull final Function<ProfileRequestContext,IdentifierGenerationStrategy> strategy) {
+        ComponentSupport.ifInitializedThrowUnmodifiabledComponentException(this);
+
+        idGeneratorLookupStrategy =
+                Constraint.isNotNull(strategy, "IdentifierGenerationStrategy lookup strategy cannot be null");
+    }
+    
+    /**
      * Set inbound bindings to use to deduce ProtocolBinding attribute.
      * 
      * @param bindings
@@ -138,7 +160,7 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
         }
     }
 
-// Checkstyle: CyclomaticComplexity OFF
+// Checkstyle: CyclomaticComplexity|MethodLength OFF
     /**
      * Outbound initiation of the process, triggered with a fixed addition to the path.
      * 
@@ -172,18 +194,29 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
             ExternalAuthentication.finishExternalAuthentication(key, httpRequest, httpResponse);
             return;
         }
+
+        final IdentifierGenerationStrategy idGenerator = idGeneratorLookupStrategy.apply(nestedPRC);
+        if (idGenerator == null) {
+            log.error("No ID generator provided");
+            httpRequest.setAttribute(ExternalAuthentication.AUTHENTICATION_ERROR_KEY, EventIds.INVALID_SEC_CFG);
+            ExternalAuthentication.finishExternalAuthentication(key, httpRequest, httpResponse);
+            return;
+        }
         
         // Fill in the AuthnRequest's ACS URL and set RelayState to the EA key.
+        // Also freshen the ID and IssueInstant in case of re-execution via webflow.
         if (nestedPRC.getOutboundMessageContext() != null &&
                 nestedPRC.getOutboundMessageContext().getMessage() instanceof AuthnRequest) {
+            final AuthnRequest authnRequest = (AuthnRequest) nestedPRC.getOutboundMessageContext().getMessage();
             SAMLBindingSupport.setRelayState(nestedPRC.getOutboundMessageContext(), key);
             final StringBuffer url = httpRequest.getRequestURL();
-            ((AuthnRequest) nestedPRC.getOutboundMessageContext().getMessage()).setAssertionConsumerServiceURL(
-                    url.substring(0, url.lastIndexOf("/start")));
+            authnRequest.setAssertionConsumerServiceURL(url.substring(0, url.lastIndexOf("/start")));
             final BindingDescriptor bd = bindingMap.get(binding);
             if (bd != null) {
-                ((AuthnRequest) nestedPRC.getOutboundMessageContext().getMessage()).setProtocolBinding(bd.getId());
+                authnRequest.setProtocolBinding(bd.getId());
             }
+            authnRequest.setID(idGenerator.generateIdentifier());
+            authnRequest.setIssueInstant(Instant.now());
         } else {
             log.error("Outbound AuthnContext message not found");
             httpRequest.setAttribute(ExternalAuthentication.AUTHENTICATION_ERROR_KEY, EventIds.INVALID_MESSAGE);
@@ -212,7 +245,7 @@ public class SAMLAuthnController extends AbstractInitializableComponent {
             ExternalAuthentication.finishExternalAuthentication(key, httpRequest, httpResponse);
         }
     }
-// Checkstyle: CyclomaticComplexity ON
+// Checkstyle: CyclomaticComplexity|MethodLength ON
     
     /**
      * Inbound completion of the process, triggered by default for any methods.
