@@ -8,7 +8,7 @@
     <parent>
         <groupId>net.shibboleth</groupId>
         <artifactId>parent</artifactId>
-        <version>11.2.2-SNAPSHOT</version>
+        <version>11.2.1</version>
     </parent>
 
     <name>Shibboleth Identity Provider</name>
@@ -72,6 +72,8 @@
         <opensaml.groupId>org.opensaml</opensaml.groupId>
         <opensaml.version>4.1.1</opensaml.version>
         <spring-extensions.version>6.1.3-SNAPSHOT</spring-extensions.version>
+        <!-- TODO: Remove when parent POM updated. -->
+        <spring.version>5.3.9</spring.version>
         <checkstyle.configLocation>${project.basedir}/../idp-parent/resources/checkstyle/checkstyle.xml</checkstyle.configLocation>
         <idp-parent.site.url>${shibboleth.site.deploy.url}java-identity-provider/${project.version}/</idp-parent.site.url>
         <idp-module.site.url>${idp-parent.site.url}${project.artifactId}</idp-module.site.url>
