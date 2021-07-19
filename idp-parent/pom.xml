@@ -320,6 +320,14 @@
                 <configuration>
                     <siteDirectory>../idp-parent/src/site</siteDirectory>
                 </configuration>
+                 <!-- TODO: Remove when parent POM updated. -->
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.wagon</groupId>
+                        <artifactId>wagon-ssh</artifactId>
+                        <version>3.4.3</version>
+                    </dependency>
+                </dependencies>
             </plugin>
 
             <plugin>
