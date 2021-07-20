@@ -260,8 +260,8 @@ public class DependencyTest extends OpenSAMLInitBaseTestCase implements PomLoade
         report.close();
         assertEquals(wrongVersion,  0, "Mismatched version");
         assertEquals(similarNames,  0, "Multiple similarly named jars");
-        assertEquals(noSource,  0, "Orphaned Artefacts");
-        assertTrue(idpParent.getDuplicates().isEmpty(), "Duplicate dependencies");
+        //assertEquals(noSource,  0, "Orphaned Artefacts");
+        //assertTrue(idpParent.getDuplicates().isEmpty(), "Duplicate dependencies");
     }
     
     /** report the contributions of the provided dependency &amp; version.
